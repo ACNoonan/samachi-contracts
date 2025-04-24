@@ -1,8 +1,9 @@
-import * as anchor from "@project-serum/anchor";
-import { Program } from "@project-serum/anchor";
+import * as anchor from "@coral-xyz/anchor";
+import { Program } from "@coral-xyz/anchor";
 import { SamachiStaking } from "../target/types/samachi_staking";
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import { Token, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { createMint, getOrCreateAssociatedTokenAccount, mintTo, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { assert } from "chai";
 
 describe("samachi-staking", () => {
   const provider = anchor.AnchorProvider.env();
@@ -10,30 +11,23 @@ describe("samachi-staking", () => {
 
   const program = anchor.workspace.SamachiStaking as Program<SamachiStaking>;
 
-  // USDC mint (replace with actual USDC devnet mint)
-  const usdcMint = new PublicKey("4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"); // USDC devnet
-
   // Admin keypair
   const admin = anchor.web3.Keypair.generate();
 
   // User keypair
   const user = anchor.web3.Keypair.generate();
 
+  // Mint keypair
+  const mintAuthority = anchor.web3.Keypair.generate();
+  let usdcMint: PublicKey;
+
   // PDA seeds
-  const [vaultPDA, vaultBump] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault"), usdcMint.toBuffer()],
-    program.programId
-  );
-
-  const [userStatePDA, userStateBump] = PublicKey.findProgramAddressSync(
-    [Buffer.from("user"), user.publicKey.toBuffer()],
-    program.programId
-  );
-
-  const [adminPDA, adminBump] = PublicKey.findProgramAddressSync(
-    [Buffer.from("admin")],
-    program.programId
-  );
+  let vaultPDA: PublicKey;
+  let vaultBump: number;
+  let userStatePDA: PublicKey;
+  let userStateBump: number;
+  let adminPDA: PublicKey;
+  let adminBump: number;
 
   // Token accounts
   let userTokenAccount: PublicKey;
@@ -41,48 +35,70 @@ describe("samachi-staking", () => {
   let treasuryTokenAccount: PublicKey;
 
   before(async () => {
-    // Airdrop SOL to admin and user
+    // Airdrop SOL to admin, user, and mint authority
     await provider.connection.confirmTransaction(
       await provider.connection.requestAirdrop(admin.publicKey, 1000000000)
     );
     await provider.connection.confirmTransaction(
       await provider.connection.requestAirdrop(user.publicKey, 1000000000)
     );
+    await provider.connection.confirmTransaction(
+      await provider.connection.requestAirdrop(mintAuthority.publicKey, 1000000000)
+    );
+
+    // Create test mint
+    usdcMint = await createMint(
+      provider.connection,
+      mintAuthority,
+      mintAuthority.publicKey,
+      null,
+      6 // 6 decimals like USDC
+    );
+
+    // Initialize PDAs
+    [vaultPDA, vaultBump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("vault"), usdcMint.toBuffer()],
+      program.programId
+    );
+
+    [userStatePDA, userStateBump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("user"), user.publicKey.toBuffer()],
+      program.programId
+    );
+
+    [adminPDA, adminBump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("admin")],
+      program.programId
+    );
 
     // Create token accounts
-    userTokenAccount = await Token.createAssociatedTokenAccount(
+    const userTokenAccountInfo = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       user,
       usdcMint,
       user.publicKey
     );
+    userTokenAccount = userTokenAccountInfo.address;
 
-    vaultTokenAccount = await Token.createAssociatedTokenAccount(
-      provider.connection,
-      user, // Using user as payer
-      usdcMint,
-      vaultPDA,
-      true // Allow owner off curve
-    );
+    // For vault, we'll let the program create the token account
+    vaultTokenAccount = vaultPDA;
 
-    treasuryTokenAccount = await Token.createAssociatedTokenAccount(
+    const treasuryTokenAccountInfo = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       admin,
       usdcMint,
       admin.publicKey
     );
+    treasuryTokenAccount = treasuryTokenAccountInfo.address;
 
-    // Mint some USDC to user
-    // Note: In devnet, you might need to use a faucet or create your own mint
-    // This is just a placeholder
-    const mintAuthority = user;
-    await Token.mintTo(
+    // Mint some tokens to user
+    await mintTo(
       provider.connection,
       mintAuthority,
       usdcMint,
       userTokenAccount,
       mintAuthority,
-      1000000 // 1 USDC (6 decimals)
+      1000000 // 1 token (6 decimals)
     );
   });
 
@@ -125,9 +141,8 @@ describe("samachi-staking", () => {
       .rpc();
   });
 
-  it("Stakes USDC", async () => {
-    const amount = new anchor.BN(100000); // 0.1 USDC
-
+  it("Stakes tokens", async () => {
+    const amount = new anchor.BN(1000000); // 1 token
     await program.methods
       .stake(amount)
       .accounts({
@@ -141,14 +156,33 @@ describe("samachi-staking", () => {
       .signers([user])
       .rpc();
 
-    // Verify stake amount
+    // Verify user state
     const userState = await program.account.userState.fetch(userStatePDA);
-    assert.ok(userState.stakedAmount.eq(amount));
+    assert(userState.stakedAmount.eq(amount));
   });
 
-  it("Settles bill", async () => {
-    const amount = new anchor.BN(50000); // 0.05 USDC
+  it("Unstakes tokens", async () => {
+    const amount = new anchor.BN(500000); // 0.5 token
+    await program.methods
+      .unstake(amount)
+      .accounts({
+        userState: userStatePDA,
+        userTokenAccount: userTokenAccount,
+        vaultTokenAccount: vaultTokenAccount,
+        mint: usdcMint,
+        authority: user.publicKey,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([user])
+      .rpc();
 
+    // Verify user state
+    const userState = await program.account.userState.fetch(userStatePDA);
+    assert(userState.stakedAmount.eq(new anchor.BN(500000))); // Should have 0.5 token left
+  });
+
+  it("Settles bill as admin", async () => {
+    const amount = new anchor.BN(200000); // 0.2 token
     await program.methods
       .settleBill(amount)
       .accounts({
@@ -163,29 +197,12 @@ describe("samachi-staking", () => {
       .signers([admin])
       .rpc();
 
-    // Verify new stake amount
+    // Verify user state
     const userState = await program.account.userState.fetch(userStatePDA);
-    assert.ok(userState.stakedAmount.eq(new anchor.BN(50000))); // 100000 - 50000
-  });
+    assert(userState.stakedAmount.eq(new anchor.BN(300000))); // Should have 0.3 token left (0.5 - 0.2)
 
-  it("Unstakes remaining USDC", async () => {
-    const amount = new anchor.BN(50000); // Remaining 0.05 USDC
-
-    await program.methods
-      .unstake(amount)
-      .accounts({
-        userState: userStatePDA,
-        userTokenAccount: userTokenAccount,
-        vaultTokenAccount: vaultTokenAccount,
-        mint: usdcMint,
-        authority: user.publicKey,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .signers([user])
-      .rpc();
-
-    // Verify final stake amount
-    const userState = await program.account.userState.fetch(userStatePDA);
-    assert.ok(userState.stakedAmount.eq(new anchor.BN(0)));
+    // Verify treasury received the funds
+    const treasuryBalance = await provider.connection.getTokenAccountBalance(treasuryTokenAccount);
+    assert(treasuryBalance.value.amount === "200000");
   });
 });

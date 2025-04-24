@@ -5,14 +5,14 @@ skip-lint = false
 [toolchain]
 anchor_version = "0.31.1"
 
-[programs.localnet]
-samachi_staking = "BAxhgSfwjWh5z6SMU6kVvgdEAkmqbipWeCKVuG4xMYFF"
+[programs.devnet]
+samachi_staking = "8n1omncNHsRzUARf4w5jAqXjLJihiCCgESixrzj7EJSJ"
 
 [registry]
 url = "https://api.apr.dev"
 
 [provider]
-cluster = "Localnet"
+cluster = "Devnet"
 wallet = "~/.config/solana/id.json"
 
 [scripts]

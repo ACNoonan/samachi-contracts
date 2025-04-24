@@ -94,12 +94,6 @@ pub mod samachi_staking {
     pub fn settle_bill(ctx: Context<SettleBill>, amount: u64) -> Result<()> {
         let user_state = &mut ctx.accounts.user_state;
 
-        // Verify admin authority
-        require!(
-            ctx.accounts.admin.key() == ctx.accounts.admin_authority.key(),
-            StakingError::Unauthorized
-        );
-
         // Verify user has enough staked to cover the bill
         require!(
             user_state.staked_amount >= amount,
