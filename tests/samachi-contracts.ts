@@ -2,7 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { SamachiStaking } from "../target/types/samachi_staking";
 import { PublicKey, SystemProgram, SYSVAR_RENT_PUBKEY } from "@solana/web3.js";
-import { createMint, getOrCreateAssociatedTokenAccount, mintTo, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { createMint, getOrCreateAssociatedTokenAccount, getAssociatedTokenAddress, mintTo, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { assert } from "chai";
 
 describe("samachi-staking", () => {
@@ -56,10 +56,12 @@ describe("samachi-staking", () => {
     );
 
     // Initialize PDAs
+    // First derive the vault PDA which will be the authority for the token account
     [vaultPDA, vaultBump] = PublicKey.findProgramAddressSync(
       [Buffer.from("vault"), usdcMint.toBuffer()],
       program.programId
     );
+    console.log("Vault PDA:", vaultPDA.toBase58());
 
     [userStatePDA, userStateBump] = PublicKey.findProgramAddressSync(
       [Buffer.from("user"), user.publicKey.toBuffer()],
@@ -80,9 +82,8 @@ describe("samachi-staking", () => {
     );
     userTokenAccount = userTokenAccountInfo.address;
 
-    // For vault, we'll let the program create the token account
+    // The vault token account is a token account owned by the vault PDA
     vaultTokenAccount = vaultPDA;
-
     const treasuryTokenAccountInfo = await getOrCreateAssociatedTokenAccount(
       provider.connection,
       admin,
@@ -127,6 +128,8 @@ describe("samachi-staking", () => {
   });
 
   it("Initializes vault", async () => {
+    console.log("Initializing vault token account at:", vaultTokenAccount.toBase58());
+    console.log("Vault bump:", vaultBump);
     await program.methods
       .initializeVault()
       .accounts({

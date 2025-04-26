@@ -6,7 +6,7 @@ skip-lint = false
 anchor_version = "0.31.1"
 
 [programs.devnet]
-samachi_staking = "8n1omncNHsRzUARf4w5jAqXjLJihiCCgESixrzj7EJSJ"
+samachi_staking = "GeJd3Em3sfV7LZZDiwmXdJWeDas8ea5GTGvSmX1F4Wkk"
 
 [registry]
 url = "https://api.apr.dev"

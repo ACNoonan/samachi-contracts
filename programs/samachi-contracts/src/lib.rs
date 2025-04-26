@@ -1,8 +1,10 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Mint, Transfer};
 
+declare_id!("GeJd3Em3sfV7LZZDiwmXdJWeDas8ea5GTGvSmX1F4Wkk");
+
 // TODO: Replace with your actual program ID after first build/deploy
-declare_id!("BAxhgSfwjWh5z6SMU6kVvgdEAkmqbipWeCKVuG4xMYFF"); 
+// ... existing code ...
 
 #[program]
 pub mod samachi_staking {
