@@ -3,10 +3,10 @@ seeds = false
 skip-lint = false
 
 [toolchain]
-anchor_version = "0.31.1"
+anchor_version = "0.30.1"
 
 [programs.devnet]
-samachi_staking = "GeJd3Em3sfV7LZZDiwmXdJWeDas8ea5GTGvSmX1F4Wkk"
+samachi_staking = "8VtCsstcdNp1vCoUA1epHXgar9tsKurPZ9eQhrieVrCX"
 
 [registry]
 url = "https://api.apr.dev"
