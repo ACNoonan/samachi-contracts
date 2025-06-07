@@ -3,7 +3,7 @@ seeds = false
 skip-lint = false
 
 [toolchain]
-anchor_version = "0.30.1"
+anchor_version = "0.31.1"
 
 [programs.devnet]
 samachi_staking = "8VtCsstcdNp1vCoUA1epHXgar9tsKurPZ9eQhrieVrCX"

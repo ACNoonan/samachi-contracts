@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 // Use the actual program ID after deployment
-declare_id!("8VtCsstcdNp1vCoUA1epHXgar9tsKurPZ9eQhrieVrCX");
+declare_id!("3jkphpULEYQzrpGKEmrLU4fYhjQVAK3vg1mUjztdddYC");
 
 // It's crucial that the Anchor CLI version used for `anchor build` matches
 // the version of `@coral-xyz/anchor` (or `@project-serum/anchor`) used in the client.
@@ -12,7 +12,8 @@ declare_id!("8VtCsstcdNp1vCoUA1epHXgar9tsKurPZ9eQhrieVrCX");
 pub mod samachi_staking {
     use super::*;
 
-    // Uncommented: Initializes the state for a new user
+    // STEP 2: Uncommented
+    // Initializes the state for a new user
     pub fn initialize_user(ctx: Context<InitializeUser>) -> Result<()> {
         let user_state = &mut ctx.accounts.user_state;
         user_state.authority = ctx.accounts.authority.key();
@@ -26,7 +27,8 @@ pub mod samachi_staking {
         Ok(())
     }
 
-    /* Commented out: Initializes the admin state
+    /* // Base State: Commented out
+    // Initializes the admin state
     // const ADMIN_SEED: &[u8] = b"admin_state"; // Seed for the admin PDA
     pub fn initialize_admin(ctx: Context<InitializeAdmin>) -> Result<()> {
         ctx.accounts.admin_state.bump = ctx.bumps.admin_state;
@@ -55,7 +57,8 @@ pub mod samachi_staking {
         Ok(())
     }
 
-    // Uncommented: Stakes tokens from the user's account into the vault
+    /* // Base State: Commented out
+    // Stakes tokens from the user's account into the vault
     pub fn stake(ctx: Context<Stake>, amount: u64) -> Result<()> {
         require!(amount > 0, StakingError::ZeroAmount); // Prevent staking zero
 
@@ -88,8 +91,10 @@ pub mod samachi_staking {
         );
         Ok(())
     }
+    */
 
-    // Uncommented: Unstakes tokens from the vault back to the user's account
+    /* // Base State: Commented out
+    // Unstakes tokens from the vault back to the user's account
     pub fn unstake(ctx: Context<Unstake>, amount: u64) -> Result<()> {
         require!(amount > 0, StakingError::ZeroAmount); // Prevent unstaking zero
 
@@ -139,8 +144,10 @@ pub mod samachi_staking {
         );
         Ok(())
     }
+    */
 
-    // Uncommented: Allows admin to settle a bill by transferring staked tokens from the vault to a treasury account
+    /* // Base State: Commented out
+    // Allows admin to settle a bill by transferring staked tokens from the vault to a treasury account
     pub fn settle_bill(ctx: Context<SettleBill>, amount: u64) -> Result<()> {
         require!(amount > 0, StakingError::ZeroAmount); // Prevent settling zero
 
@@ -194,6 +201,7 @@ pub mod samachi_staking {
         );
         Ok(())
     }
+    */
 }
 
 // Constants for PDA seeds
@@ -299,7 +307,8 @@ pub struct InitializeVault<'info> {
     pub rent: Sysvar<'info, Rent>, // Needed for token account init
 }
 
-// Uncommented: InitializeUser Context
+// STEP 2: Uncommented
+// InitializeUser Context
 #[derive(Accounts)]
 pub struct InitializeUser<'info> {
     #[account(
@@ -315,6 +324,7 @@ pub struct InitializeUser<'info> {
     pub system_program: Program<'info, System>,
 }
 
+/* // Base State: Commented out
 // Uncommented: Stake Context
 #[derive(Accounts)]
 pub struct Stake<'info> {
@@ -353,7 +363,9 @@ pub struct Stake<'info> {
     pub token_program: Program<'info, Token>,
     // pub system_program: Program<'info, System>, // System program might be needed if creating accounts, but not for basic transfer
 }
+*/
 
+/* // Base State: Commented out
 // Uncommented: Unstake Context
 #[derive(Accounts)]
 pub struct Unstake<'info> {
@@ -390,7 +402,9 @@ pub struct Unstake<'info> {
     pub authority: Signer<'info>, // The user performing the unstake
     pub token_program: Program<'info, Token>,
 }
+*/
 
+/* // Base State: Commented out
 // Uncommented: SettleBill Context
 #[derive(Accounts)]
 pub struct SettleBill<'info> {
@@ -447,6 +461,7 @@ pub struct SettleBill<'info> {
 
     pub token_program: Program<'info, Token>,
 }
+*/
 
 // Custom Error Codes
 #[error_code]

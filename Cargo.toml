@@ -4,6 +4,10 @@ members = [
 ]
 resolver = "2"
 
+# Force proc-macro2 version for compatibility with anchor 0.30.1
+[patch.crates-io]
+proc-macro2 = { version = "1.0.66" }
+
 [profile.release]
 overflow-checks = true
 lto = "fat"

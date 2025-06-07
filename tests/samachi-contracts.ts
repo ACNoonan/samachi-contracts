@@ -6,152 +6,219 @@ import { createMint, getOrCreateAssociatedTokenAccount, getAssociatedTokenAddres
 import { assert } from "chai";
 
 describe("samachi-staking", () => {
+  // Configure the client to use the local cluster.
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
 
   const program = anchor.workspace.SamachiStaking as Program<SamachiStaking>;
 
-  // Admin keypair
-  const admin = anchor.web3.Keypair.generate();
-
-  // User keypair
+  // Keypairs
+  const admin = anchor.web3.Keypair.generate(); // Keep admin for potential future use or treasury owner
   const user = anchor.web3.Keypair.generate();
-
-  // Mint keypair
   const mintAuthority = anchor.web3.Keypair.generate();
   let usdcMint: PublicKey;
 
-  // PDA seeds
-  let vaultPDA: PublicKey;
-  let vaultBump: number;
+  // PDAs and bumps (using seeds from lib.rs)
   let userStatePDA: PublicKey;
   let userStateBump: number;
-  let adminPDA: PublicKey;
-  let adminBump: number;
+  let vaultAuthorityPDA: PublicKey;
+  let vaultAuthorityBump: number;
+  let vaultTokenAccountPDA: PublicKey;
+  let vaultTokenAccountBump: number;
+  // let adminStatePDA: PublicKey; // Commented out as initializeAdmin is inactive
+  // let adminStateBump: number; // Commented out
 
   // Token accounts
-  let userTokenAccount: PublicKey;
-  let vaultTokenAccount: PublicKey;
-  let treasuryTokenAccount: PublicKey;
+  let userTokenAccountATA: PublicKey; // User's Associated Token Account
+  let treasuryTokenAccountATA: PublicKey; // Admin's Associated Token Account for treasury
+
+  // Constants from lib.rs
+  const USER_SEED = Buffer.from("user_state");
+  const VAULT_SEED = Buffer.from("vault_tokens");
+  const VAULT_AUTHORITY_SEED = Buffer.from("vault_authority");
+  // const ADMIN_SEED = Buffer.from("admin_state"); // Commented out
 
   before(async () => {
-    // Airdrop SOL to admin, user, and mint authority
+    // Airdrop SOL - Commented out due to rate limiting issues.
+    // Ensure the admin, user, and mintAuthority accounts have SOL before running tests.
+    /*
     await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(admin.publicKey, 1000000000)
+      await provider.connection.requestAirdrop(admin.publicKey, 1000000000),
+      "confirmed"
     );
     await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(user.publicKey, 1000000000)
+      await provider.connection.requestAirdrop(user.publicKey, 1000000000),
+      "confirmed"
     );
     await provider.connection.confirmTransaction(
-      await provider.connection.requestAirdrop(mintAuthority.publicKey, 1000000000)
+      await provider.connection.requestAirdrop(mintAuthority.publicKey, 1000000000),
+      "confirmed"
     );
+    */
 
-    // Create test mint
+    // Create USDC Mint
     usdcMint = await createMint(
       provider.connection,
       mintAuthority,
       mintAuthority.publicKey,
       null,
-      6 // 6 decimals like USDC
+      6 // Decimals
     );
+    console.log("USDC Mint:", usdcMint.toBase58());
 
-    // Initialize PDAs
-    // First derive the vault PDA which will be the authority for the token account
-    [vaultPDA, vaultBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("vault"), usdcMint.toBuffer()],
-      program.programId
-    );
-    console.log("Vault PDA:", vaultPDA.toBase58());
-
+    // Derive PDAs based on lib.rs seeds
     [userStatePDA, userStateBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("user"), user.publicKey.toBuffer()],
+      [USER_SEED, user.publicKey.toBuffer()],
       program.programId
     );
+    console.log("UserState PDA:", userStatePDA.toBase58());
 
-    [adminPDA, adminBump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("admin")],
+    [vaultAuthorityPDA, vaultAuthorityBump] = PublicKey.findProgramAddressSync(
+      [VAULT_AUTHORITY_SEED, usdcMint.toBuffer()],
       program.programId
     );
+    console.log("Vault Authority PDA:", vaultAuthorityPDA.toBase58());
 
-    // Create token accounts
+    [vaultTokenAccountPDA, vaultTokenAccountBump] = PublicKey.findProgramAddressSync(
+      [VAULT_SEED, usdcMint.toBuffer()],
+      program.programId
+    );
+    console.log("Vault Token Account PDA:", vaultTokenAccountPDA.toBase58());
+
+    /* // Commented out Admin PDA derivation
+    [adminStatePDA, adminStateBump] = PublicKey.findProgramAddressSync(
+      [ADMIN_SEED],
+      program.programId
+    );
+    console.log("AdminState PDA:", adminStatePDA.toBase58());
+    */
+
+    // Create User Associated Token Account
     const userTokenAccountInfo = await getOrCreateAssociatedTokenAccount(
       provider.connection,
-      user,
+      user, // Payer
       usdcMint,
-      user.publicKey
+      user.publicKey, // Owner
+      false // Allow owner off curve
     );
-    userTokenAccount = userTokenAccountInfo.address;
+    userTokenAccountATA = userTokenAccountInfo.address;
+    console.log("User ATA:", userTokenAccountATA.toBase58());
 
-    // The vault token account is a token account owned by the vault PDA
-    vaultTokenAccount = vaultPDA;
+    // Create Treasury Associated Token Account (Owned by Admin)
     const treasuryTokenAccountInfo = await getOrCreateAssociatedTokenAccount(
       provider.connection,
-      admin,
+      admin, // Payer
       usdcMint,
-      admin.publicKey
+      admin.publicKey, // Owner (admin controls treasury)
+      false
     );
-    treasuryTokenAccount = treasuryTokenAccountInfo.address;
+    treasuryTokenAccountATA = treasuryTokenAccountInfo.address;
+    console.log("Treasury ATA:", treasuryTokenAccountATA.toBase58());
 
-    // Mint some tokens to user
+    // Mint tokens to user's ATA
     await mintTo(
       provider.connection,
-      mintAuthority,
+      mintAuthority, // Payer/Signer
       usdcMint,
-      userTokenAccount,
-      mintAuthority,
-      1000000 // 1 token (6 decimals)
+      userTokenAccountATA, // Destination
+      mintAuthority, // Mint Authority
+      1000 * 10 ** 6 // 1000 USDC (adjust amount as needed)
     );
+    console.log("Minted 1000 USDC to user ATA");
+    const initialUserBalance = await provider.connection.getTokenAccountBalance(userTokenAccountATA);
+    console.log("Initial User ATA Balance:", initialUserBalance.value.uiAmountString);
   });
 
+  /* // Instruction commented out in lib.rs
   it("Initializes admin", async () => {
     await program.methods
       .initializeAdmin()
       .accounts({
-        admin: adminPDA,
+        adminState: adminStatePDA, // Use PDA derived above
         adminAuthority: admin.publicKey,
         systemProgram: SystemProgram.programId,
       })
       .signers([admin])
       .rpc();
-  });
 
-  it("Initializes user", async () => {
+    const adminState = await program.account.adminState.fetch(adminStatePDA);
+    assert.equal(adminState.bump, adminStateBump);
+    console.log("Admin initialized");
+  });
+  */
+
+  it("Initializes user state", async () => {
     await program.methods
       .initializeUser()
       .accounts({
-        userState: userStatePDA,
+        userState: userStatePDA, // Use camelCase key matching the IDL
         authority: user.publicKey,
         systemProgram: SystemProgram.programId,
       })
       .signers([user])
       .rpc();
+
+    // Verify user state
+    const userState = await program.account.userState.fetch(userStatePDA);
+    assert.isTrue(userState.authority.equals(user.publicKey));
+    assert.isTrue(userState.stakedAmount.eqn(0));
+    assert.equal(userState.bump, userStateBump);
+    console.log("User state initialized for:", user.publicKey.toBase58());
   });
 
+
   it("Initializes vault", async () => {
-    console.log("Initializing vault token account at:", vaultTokenAccount.toBase58());
-    console.log("Vault bump:", vaultBump);
+    console.log("Initializing vault...");
     await program.methods
       .initializeVault()
       .accounts({
-        vaultTokenAccount: vaultTokenAccount,
+        vaultAuthority: vaultAuthorityPDA,     // Use camelCase key matching the IDL
+        vaultTokenAccount: vaultTokenAccountPDA, // Use camelCase key matching the IDL
         mint: usdcMint,
-        payer: user.publicKey,
+        payer: user.publicKey,                 // User pays for initialization
         systemProgram: SystemProgram.programId,
         tokenProgram: TOKEN_PROGRAM_ID,
         rent: SYSVAR_RENT_PUBKEY,
       })
+      // No signers needed if payer is the provider wallet or handled implicitly
+      // If 'user' needs to sign for paying, add .signers([user])
+      // Since payer is user.publicKey, user must sign
       .signers([user])
       .rpc();
+
+    // Verify vault authority PDA data
+    const vaultAuthorityState = await program.account.vaultAuthority.fetch(vaultAuthorityPDA);
+    assert.equal(vaultAuthorityState.bump, vaultAuthorityBump);
+    console.log("Vault Authority PDA Initialized");
+
+    // Verify vault token account details
+    const vaultTokenAccountInfo = await provider.connection.getAccountInfo(vaultTokenAccountPDA);
+    // Check if account exists and is owned by token program
+    assert.isNotNull(vaultTokenAccountInfo);
+    assert.isTrue(vaultTokenAccountInfo.owner.equals(TOKEN_PROGRAM_ID));
+
+    // A more detailed check using spl-token library if needed:
+    // const vaultTokenAccountData = AccountLayout.decode(vaultTokenAccountInfo.data);
+    // assert.isTrue(new PublicKey(vaultTokenAccountData.mint).equals(usdcMint));
+    // assert.isTrue(new PublicKey(vaultTokenAccountData.owner).equals(vaultAuthorityPDA)); // PDA is the authority
+
+    console.log("Vault Token Account PDA Initialized and owned by Token Program");
   });
 
+
+  /* // Instruction commented out in lib.rs
   it("Stakes tokens", async () => {
-    const amount = new anchor.BN(1000000); // 1 token
+    const amount = new anchor.BN(100 * 10 ** 6); // 100 USDC
+    const userBalanceBefore = await provider.connection.getTokenAccountBalance(userTokenAccountATA);
+    const vaultBalanceBefore = await provider.connection.getTokenAccountBalance(vaultTokenAccountPDA);
+
     await program.methods
       .stake(amount)
       .accounts({
         userState: userStatePDA,
-        userTokenAccount: userTokenAccount,
-        vaultTokenAccount: vaultTokenAccount,
+        userTokenAccount: userTokenAccountATA,   // User's ATA
+        vaultTokenAccount: vaultTokenAccountPDA, // Vault's PDA Token Account
+        vaultAuthority: vaultAuthorityPDA,     // Added vault authority PDA
         mint: usdcMint,
         authority: user.publicKey,
         tokenProgram: TOKEN_PROGRAM_ID,
@@ -161,51 +228,120 @@ describe("samachi-staking", () => {
 
     // Verify user state
     const userState = await program.account.userState.fetch(userStatePDA);
-    assert(userState.stakedAmount.eq(amount));
-  });
+    assert.isTrue(userState.stakedAmount.eq(amount), "User state stake amount mismatch");
 
+    // Verify token balances
+    const userBalanceAfter = await provider.connection.getTokenAccountBalance(userTokenAccountATA);
+    const vaultBalanceAfter = await provider.connection.getTokenAccountBalance(vaultTokenAccountPDA);
+
+    const expectedUserBalance = new anchor.BN(userBalanceBefore.value.amount).sub(amount);
+    const expectedVaultBalance = new anchor.BN(vaultBalanceBefore.value.amount).add(amount);
+
+    assert.isTrue(new anchor.BN(userBalanceAfter.value.amount).eq(expectedUserBalance), "User ATA balance mismatch after stake");
+    assert.isTrue(new anchor.BN(vaultBalanceAfter.value.amount).eq(expectedVaultBalance), "Vault Token Account balance mismatch after stake");
+
+    console.log(`Staked ${amount.toString()} tokens`);
+    console.log("User ATA Balance:", userBalanceAfter.value.uiAmountString);
+    console.log("Vault PDA Balance:", vaultBalanceAfter.value.uiAmountString);
+  });
+  */
+
+  /* // Instruction commented out in lib.rs
   it("Unstakes tokens", async () => {
-    const amount = new anchor.BN(500000); // 0.5 token
+    const userStateBefore = await program.account.userState.fetch(userStatePDA);
+    const amountToUnstake = new anchor.BN(50 * 10 ** 6); // Unstake 50 USDC
+    assert.isTrue(userStateBefore.stakedAmount.gte(amountToUnstake), "Not enough staked to unstake");
+
+    const userBalanceBefore = await provider.connection.getTokenAccountBalance(userTokenAccountATA);
+    const vaultBalanceBefore = await provider.connection.getTokenAccountBalance(vaultTokenAccountPDA);
+
     await program.methods
-      .unstake(amount)
+      .unstake(amountToUnstake)
       .accounts({
         userState: userStatePDA,
-        userTokenAccount: userTokenAccount,
-        vaultTokenAccount: vaultTokenAccount,
+        userTokenAccount: userTokenAccountATA,   // User's ATA
+        vaultTokenAccount: vaultTokenAccountPDA, // Vault's PDA Token Account
+        vaultAuthority: vaultAuthorityPDA,     // Vault authority PDA (signer)
         mint: usdcMint,
-        authority: user.publicKey,
+        authority: user.publicKey,             // User (owner of userState)
         tokenProgram: TOKEN_PROGRAM_ID,
       })
       .signers([user])
       .rpc();
 
     // Verify user state
-    const userState = await program.account.userState.fetch(userStatePDA);
-    assert(userState.stakedAmount.eq(new anchor.BN(500000))); // Should have 0.5 token left
-  });
+    const userStateAfter = await program.account.userState.fetch(userStatePDA);
+    const expectedStake = userStateBefore.stakedAmount.sub(amountToUnstake);
+    assert.isTrue(userStateAfter.stakedAmount.eq(expectedStake), "User state stake amount mismatch after unstake");
 
+    // Verify token balances
+    const userBalanceAfter = await provider.connection.getTokenAccountBalance(userTokenAccountATA);
+    const vaultBalanceAfter = await provider.connection.getTokenAccountBalance(vaultTokenAccountPDA);
+
+    const expectedUserBalance = new anchor.BN(userBalanceBefore.value.amount).add(amountToUnstake);
+    const expectedVaultBalance = new anchor.BN(vaultBalanceBefore.value.amount).sub(amountToUnstake);
+
+    assert.isTrue(new anchor.BN(userBalanceAfter.value.amount).eq(expectedUserBalance), "User ATA balance mismatch after unstake");
+    assert.isTrue(new anchor.BN(vaultBalanceAfter.value.amount).eq(expectedVaultBalance), "Vault Token Account balance mismatch after unstake");
+
+
+    console.log(`Unstaked ${amountToUnstake.toString()} tokens`);
+    console.log("User State Staked:", userStateAfter.stakedAmount.toString());
+    console.log("User ATA Balance:", userBalanceAfter.value.uiAmountString);
+    console.log("Vault PDA Balance:", vaultBalanceAfter.value.uiAmountString);
+  });
+  */
+
+  /* // Instruction commented out in lib.rs
   it("Settles bill as admin", async () => {
-    const amount = new anchor.BN(200000); // 0.2 token
+    // Ensure user has enough stake (e.g., 50 USDC left from previous tests)
+    const userStateBefore = await program.account.userState.fetch(userStatePDA);
+    const amountToSettle = new anchor.BN(20 * 10 ** 6); // Settle 20 USDC
+    assert.isTrue(userStateBefore.stakedAmount.gte(amountToSettle), "Not enough staked to settle bill");
+
+    const vaultBalanceBefore = await provider.connection.getTokenAccountBalance(vaultTokenAccountPDA);
+    const treasuryBalanceBefore = await provider.connection.getTokenAccountBalance(treasuryTokenAccountATA);
+
+
     await program.methods
-      .settleBill(amount)
+      .settleBill(amountToSettle)
       .accounts({
-        userState: userStatePDA,
-        vaultTokenAccount: vaultTokenAccount,
-        treasuryTokenAccount: treasuryTokenAccount,
+        userState: userStatePDA,                 // User whose stake is used
+        authority: user.publicKey,             // ** Authority stored in user_state **
+        vaultTokenAccount: vaultTokenAccountPDA, // Source vault
+        vaultAuthority: vaultAuthorityPDA,     // Vault authority PDA (signer)
+        treasuryTokenAccount: treasuryTokenAccountATA, // Destination treasury
         mint: usdcMint,
-        admin: adminPDA,
-        adminAuthority: admin.publicKey,
+        adminAuthority: admin.publicKey,       // Admin initiating settlement
+        // adminState: adminStatePDA,          // Add if constraint is needed
         tokenProgram: TOKEN_PROGRAM_ID,
       })
-      .signers([admin])
+      .signers([admin]) // Admin signs to authorize
       .rpc();
 
     // Verify user state
-    const userState = await program.account.userState.fetch(userStatePDA);
-    assert(userState.stakedAmount.eq(new anchor.BN(300000))); // Should have 0.3 token left (0.5 - 0.2)
+    const userStateAfter = await program.account.userState.fetch(userStatePDA);
+    const expectedStake = userStateBefore.stakedAmount.sub(amountToSettle);
+    assert.isTrue(userStateAfter.stakedAmount.eq(expectedStake), "User state stake amount mismatch after settlement");
 
-    // Verify treasury received the funds
-    const treasuryBalance = await provider.connection.getTokenAccountBalance(treasuryTokenAccount);
-    assert(treasuryBalance.value.amount === "200000");
+    // Verify token balances
+    const vaultBalanceAfter = await provider.connection.getTokenAccountBalance(vaultTokenAccountPDA);
+    const treasuryBalanceAfter = await provider.connection.getTokenAccountBalance(treasuryTokenAccountATA);
+
+    const expectedVaultBalance = new anchor.BN(vaultBalanceBefore.value.amount).sub(amountToSettle);
+    const expectedTreasuryBalance = new anchor.BN(treasuryBalanceBefore.value.amount).add(amountToSettle);
+
+    assert.isTrue(new anchor.BN(vaultBalanceAfter.value.amount).eq(expectedVaultBalance), "Vault Token Account balance mismatch after settlement");
+    assert.isTrue(new anchor.BN(treasuryBalanceAfter.value.amount).eq(expectedTreasuryBalance), "Treasury Token Account balance mismatch after settlement");
+
+
+    console.log(`Settled bill of ${amountToSettle.toString()} tokens for user ${user.publicKey.toBase58()}`);
+    console.log("User State Staked:", userStateAfter.stakedAmount.toString());
+    console.log("Vault PDA Balance:", vaultBalanceAfter.value.uiAmountString);
+    console.log("Treasury ATA Balance:", treasuryBalanceAfter.value.uiAmountString);
   });
+  */
 });
+
+// Helper function to sleep (useful for waiting for transaction confirmation if needed)
+// const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
